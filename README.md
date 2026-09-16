@@ -1,119 +1,135 @@
-# train an agent to play Ms. Pac-Man
+# Ms. Pac Man agent trained with Deep Q Learning
 
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pepealonso95/pacman-dqn/blob/main/pacman_dqn.ipynb)
+**Berkeley Haas, Foundations of Agentic AI (Fall 2026), Assignment 2**
+Author: Tomas Diez Canedo · Course index: [haas-ai-fall-2026](https://github.com/tomas10k/haas-ai-fall-2026)
 
-**[Open the notebook in Google Colab](https://colab.research.google.com/github/pepealonso95/pacman-dqn/blob/main/pacman_dqn.ipynb)**
+I trained a Deep Q Network (DQN) to play Ms. Pac Man for 500 games on a Colab T4 GPU, then ran a second experiment with a **10× larger replay memory**. The submitted run (run 2) raised the mean evaluation score from **492 to 704 (+43%)**. Its training scores kept climbing to a **~916 average over the last 100 games**, compared with ~712 for my first run.
 
-Open **[pacman_dqn.ipynb](pacman_dqn.ipynb)**, choose three numbers, and run all cells.
-The complete DQN is in the notebook, split into short code cells with plain-language explanations.
-No coding is needed. Keep `pacman_player.py` beside the notebook for the local floating gameplay player.
+**Submitted run (run 2): the same five evaluation games before and after training**
 
-| Your choice | What it controls | Starting point |
+| Seed | Untrained | Trained |
 |---|---|---|
-| Exploration | Fraction of random training moves after warm-up | `0.20` |
-| Episodes | Number of training games | `100` |
-| Learning rate | Size of each learning update | `0.0001` |
+| 101 | 350 | 350 |
+| 202 | 500 | 1,120 |
+| 303 | 320 | 390 |
+| 404 | 800 | 430 |
+| 505 | 490 | 1,230 |
+| **Mean** | **492** | **704** |
 
-Try five episodes to check your setup. Useful Atari learning may require much longer runs.
-Exploration stays constant after 1,000 random warm-up decisions. The code includes an instruction for Claude Code or Codex to ask the student for these three choices before training.
+Untrained agent | Best trained evaluation game (first 20 s, 4× speed)
+:---:|:---:
+![untrained](results/untrained.gif) | ![trained](results/final_best.gif)
 
-## Open and run
+![training dashboard, run 2](results/training_dashboard.png)
 
-**Google Colab:** use the Colab button above, select Runtime → Change runtime type → T4 GPU if available, edit the three values in section 1, and choose Runtime → Run all. The setup cell installs packages automatically.
+---
 
-**Local Jupyter or VS Code:** clone or download this repository, open the notebook, select a Python 3.11–3.13 kernel, edit the three choices, and choose Run All. CUDA, Apple Silicon MPS, and CPU are detected automatically; a real training batch checks the selected device before the experiment starts.
+## 1. Overview and setup
 
-**VS Code with `py313`:** select **Select Kernel → Python Environments → py313 (Python 3.13)**.
-Use the Python and Jupyter extensions. The local Conda `py313` environment supports Tk for popup playback.
-The notebook still runs if Tk is unavailable, but samples appear inline only.
+The notebook [`pacman_dqn.ipynb`](pacman_dqn.ipynb) is based on the course template ([pepealonso95/pacman-dqn](https://github.com/pepealonso95/pacman-dqn)). I changed only settings. The learning code and all evaluation settings are untouched.
 
-### Fast floating gameplay samples
+**To reproduce:**
+1. Open the notebook in Google Colab and select **Runtime → Change runtime type → T4 GPU**.
+2. Use the values in section 2 below: the three choices in notebook section 1, and three memory settings in the "fixed experiment settings" cell.
+3. Choose **Runtime → Run all**. Setup installs the pinned packages automatically (see [`requirements.txt`](requirements.txt)).
 
-The before-training sample, every-25-game progress samples, and final sample play at **4× speed**.
-A 20-second excerpt takes about five seconds to watch. Each local sample opens automatically in a separate
-**always-on-top window**, with Pause, Replay, and a “Keep above other windows” toggle. Press Escape or close
-the window to dismiss it. Each sample plays twice and stops on its final frame. Replay starts two more plays.
-A new sample replaces the previous popup, and training continues while it plays.
+To run locally, use Python 3.11 to 3.13: `pip install -r requirements.txt`, then open the notebook in Jupyter or VS Code.
 
-The popup plays a recorded evaluation excerpt once that evaluation finishes. Training and evaluation already
-run as fast as the hardware allows, without real-time delays. Faster preview playback does not change the
-agent's decisions, learning settings, or full-game scores. The saved GIFs also use accelerated playback.
+## 2. My choices
 
-Set `SHOW_POPUPS = False` in the preview settings for inline playback only. Colab, remote kernels without
-a desktop, and Python installations without Tk use the inline GIF. The popup helper is optional, so the
-notebook still runs by itself in Colab.
+**The three required choices**
 
-### Read the learning process one piece at a time
+| Setting | Run 1 | Run 2 (submitted) | Template | Why |
+|---|---|---|---|---|
+| Exploration | 0.10 | **0.10** | 0.20 | Evaluation always uses 5% random moves. Training at 10% keeps enough randomness to find new routes, while most training moves follow the agent's own strategy, so it practices the game it will be scored on. 0.10 is also the final exploration level in DeepMind's original DQN paper. |
+| Episodes | 500 | **500** | 100 | A 5 game smoke test took 10 seconds on the T4, so 500 games (about 20 minutes) was affordable. I kept 500 in run 2 so the comparison isolates the effect of memory, not training length. |
+| Learning rate | 0.00025 | **0.0001** | 0.0001 | Run 1 used the DQN paper's 0.00025 to learn faster. In run 2 I lowered it, because smaller, steadier updates suit a larger and more varied memory. |
 
-Section 3 separates screen preparation, the network, memory, move selection, and a learning update.
-Section 4 separates evaluation, playback, checkpoints, logging, and plots. Section 5 separates experiment
-setup, baseline evaluation, one training game, progress samples, saving, and the final experiment loop.
-Each code cell contains at most 33 lines and has an explanation immediately before it.
+**Additional settings changed in run 2** (fixed experiment settings cell)
 
-If you need to install Jupyter first:
+| Setting | Template | Run 2 | Why |
+|---|---|---|---|
+| `REPLAY_CAPACITY` | 5,000 | **50,000** | The template remembers only about 8 games of experience, so the agent keeps relearning its latest games and forgetting older lessons. 50,000 decisions covers about 80 games (about 1.8 GB of RAM). |
+| `WARMUP_STEPS` | 1,000 | **10,000** | Fills the memory with more varied random play before learning starts |
+| `TARGET_EVERY` | 1,000 | **2,000** | Refreshes the stable "target" copy of the network less often, giving learning a steadier reference |
 
-```sh
-python -m venv .venv
-# macOS / Linux:
-source .venv/bin/activate
-# Windows PowerShell: .venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python -m jupyter lab pacman_dqn.ipynb
+Unchanged on purpose: `MAX_STEPS`, `FRAME_SKIP`, `EVAL_SEEDS` and `EVAL_EXPLORATION`, so that before and after scores stay comparable with the rest of the class.
+
+## 3. Expected vs. observed
+
+**Expected (run 1):** steady improvement across 500 games, and better scores in every evaluation game.
+
+**Observed (run 1):** the mean rose from 492 to 702, but training scores **flattened after about 100 games** at roughly 700, while loss kept rising. My reading was that the tiny memory, not the number of games, was the constraint.
+
+**Expected (run 2):** with 10× the memory, learning should keep improving instead of stalling.
+
+**Observed (run 2):**
+* **Training ended higher and was still rising.** By 100 game blocks, the average training score went 627 → 818 → 788 → 790 → 916. Run 1 ended at 712.
+* **Big games became far more common:** 15 training games scored over 2,000, compared with 3 in run 1. The best game was 3,920.
+* **The evaluation mean barely moved** (702 → 704). The five evaluation games range from 350 to 1,230, so the mean can swing by roughly ±170 on luck alone. Five games can't separate the two runs. The training curve is the stronger evidence that run 2 learned more.
+* **Not every game improved.** Seed 404 dropped from 800 to 430, and seed 101 stayed at 350.
+* **Loss rose steadily (0.03 → 0.13) while scores rose too.** Lower loss does not mean better play. In DQN, loss often grows as the agent's value estimates grow and it reaches new parts of the maze.
+* **The periodic single game checks were volatile** (for example, 940 at game 200 and 310 at game 225), so any one GIF is an illustration, not evidence.
+
+| | Run 1 | Run 2 (submitted) |
+|---|---|---|
+| Evaluation mean (5 games) | 702 | 704 |
+| Games that improved vs. untrained | 4 of 5 | 3 of 5 (1 tied) |
+| Training average, last 100 games | 712 | **916** |
+| Training games above 2,000 | 3 | **15** |
+| Best training game | 4,080 | 3,920 |
+
+Run 1's files are kept in [`results/run1/`](results/run1/). A 5 game smoke test (template settings) scored 642, but that came almost entirely from one lucky 1,750 point game, an early lesson in reading small samples carefully.
+
+## 4. Training metrics (run 2)
+
+| Metric | Value |
+|---|---|
+| Completed episodes | 500 of 500 |
+| Agent decisions | 306,398 |
+| Learning updates | 74,100 |
+| Training time | 1,386 s (about 23 min, including periodic samples) |
+| Hardware | Google Colab, NVIDIA T4 GPU (CUDA), Linux |
+| Software | Python 3.13.15, PyTorch 2.11.0, Gymnasium 1.3.0, ALE 0.11.2 |
+| Evaluation | Same 5 seeds (101 to 505), 5% exploration, 3,000 decision cap |
+
+Full settings and versions are in [`results/config.json`](results/config.json), with per game history in [`results/training.csv`](results/training.csv).
+
+## 5. How the agent works, in plain language
+
+* **Observations (what it sees):** the game screen, shrunk to 84 × 84 grayscale pixels. The agent sees the last **four** screens stacked together, so it can tell which way the ghosts are moving, which a single still image can't show. It makes a decision every fourth frame.
+* **Actions (what it can do):** 9 joystick moves: stay still, up, down, left, right, and the four diagonals. For each screen, the network estimates how many future points each move will lead to, and picks the highest (except when it explores at random).
+* **Rewards (what it learns from):** the game score: 10 points for a dot, 50 for a power pellet, 200 to 1,600 for eating ghosts, and more for fruit. During training each reward is **clipped to +1**. Reported scores are the real game scores.
+* **How it learns:** it stores recent decisions in a replay memory, and every 4 decisions it studies a random batch of 32. It nudges each estimate toward *reward now + 0.99 × best estimated value of the next screen*, using a slower moving copy of itself as a stable target. Random batches from a large memory break the link between back to back moments, which is the likely reason the larger memory helped in run 2.
+
+## 6. One limitation
+
+**Reward clipping hides the value of a big play.** Because every reward is clipped to +1, eating a ghost (200 to 1,600 points) teaches the same lesson as eating one dot (10 points). The agent has little reason to go after power pellets and hunt ghosts, which is where the big Ms. Pac Man scores come from.
+
+Other constraints: five evaluation games is a small sample, and the notebook evaluates the *final* network rather than the best checkpoint, even though the policy swings between stronger and weaker versions during training.
+
+## 7. Next experiment
+
+Keep run 2's memory settings and lower **exploration to 0.05**, so training matches the 5% used in evaluation. With a large memory there is already plenty of variety, so less random play should turn more of what the agent knows into points. After that, I would test removing reward clipping (for example, scaling rewards by 1/100 instead), so the agent learns that ghosts are worth far more than dots.
+
+## Repository contents
+
+```
+pacman_dqn.ipynb            executed notebook (run 2), outputs included
+pacman_player.py            optional local popup player (from template)
+requirements.txt            pinned dependencies
+results/
+  comparison.json           all 5 before and after scores (run 2)
+  baseline.json             untrained scores
+  demo_scores.json          single game checks every 25 games
+  training.csv              one row per training game
+  training_summary.json     episodes, decisions, updates, time
+  config.json               settings, hardware, package versions
+  training_dashboard.png    score, loss and exploration plots
+  untrained.gif             gameplay before training
+  final_best.gif            best of the five trained evaluation games
+  progress/                 gameplay samples every 100 games
+  run1/                     the same files for run 1 (small memory)
 ```
 
-## What you get
-
-Each experiment saves a separate folder under `pacman_runs/`:
-
-- Settings, hardware, and actual package versions in `config.json`.
-- Untrained gameplay and new GIFs every 25 episodes.
-- A training dashboard with raw score, loss, and exploration.
-- All five untrained and trained evaluation scores in `comparison.json`.
-- Untrained, periodic, and final model checkpoints for playback.
-- CSV training history, elapsed time, decision count, and number of learning updates.
-- A ZIP download with all results.
-
-Use Interrupt / Stop once to end training early and save progress, then run section 6 onward for evaluation and download. The saved model includes any updates from the interrupted episode; the episode log contains completed episodes only. Checkpoints support playback, not exact training resumption. To start again, rerun from section 5a or choose Run All; the training cell guards against accidentally reusing an old experiment.
-
-In Colab, download the ZIP before the session ends. Commit the notebook, selected GIFs, plots, comparison, and your written reflection to your own repository. Generated run folders and checkpoints are ignored by default; copy the selected evidence into a `results/` folder to publish it. Keep large checkpoints locally or attach them to a release.
-
-## How it works
-
-The environment is `ALE/MsPacman-v5`. Four grayscale 84 × 84 frames feed a convolutional Q-network, which predicts action values. The agent uses experience replay, a target network, Adam, Huber loss, and a discounted reward target. Game over removes the future-value term; time limits do not.
-
-Frame skipping happens only in `AtariPreprocessing` (four frames per decision); the base environment uses `frameskip=1`. Reset fills the stack with the new game's initial screen. Sticky-action probability is 0.25, no-op resets use up to 30 actions, and losing one life does not end the episode. Each game is capped at 3,000 decisions, about 200 seconds of game time.
-
-Replay stores each current stack plus one new frame as `uint8`: about 168 MiB at 5,000 transitions, plus Python, network, and batch overhead. Training samples 32 transitions every four decisions after warm-up. The target network syncs every 1,000 decisions; gamma is 0.99. Training rewards are clipped to [-1, 1], while all reported game scores are raw.
-
-Before/after evaluation uses the same five seeds, 5% exploration, and step cap. The baseline is an untrained network. Evaluation uses a separate environment and never updates replay or weights. The best GIF is selected by full-game score, but only its first 20 seconds are recorded. Inspect all five scores before claiming improvement. The small replay memory and fixed exploration simplify the classroom exercise; this is not a benchmark-scale DQN reproduction.
-
-## Make your own submission repository
-
-Fork this repository or create your own repository containing the notebook and selected results. The notebook works by itself; README and requirements support setup and explanation.
-
-## Verification
-
-Executed every revised notebook cell in order through the real `py313` Jupyter kernel on macOS Apple Silicon with MPS, Python 3.13.9, PyTorch 2.10.0, Gymnasium 1.3.0, ALE 0.11.2, OpenCV headless 4.14.0.94, NumPy 2.3.4, Matplotlib 3.10.6, and Pillow 11.3.0.
-
-The verification copy used 20% exploration, **five episodes**, learning rate 0.0001, and samples every two games to exercise the periodic popup/checkpoint path: 3,306 decisions and 577 learning updates. All five before/after evaluation games completed. Checks verified changed and finite model weights, finite losses after warm-up, periodic checkpoints and samples at games 2 and 4, accelerated GIF frame counts and duration, the dashboard, and ZIP contents.
-
-The native Tk player was also tested on the local desktop: window mapping, loaded gameplay image, exactly two plays, window dimensions, always-on-top state, Pause/Play, Replay, and unpin/repin. The no-Tk inline fallback was checked separately. The updated notebook was opened in VS Code with `py313`; the ordered execution test used Jupyter programmatically, not a VS Code Run All click.
-
-To repeat the five-game verification without editing the classroom notebook:
-
-```sh
-python tests/verify_notebook.py --kernel py313
-# For a kernel without a local desktop:
-python tests/verify_notebook.py --kernel py313 --no-popups
-```
-
-Run that command with the same Python environment used by the notebook. Its executed test notebook and all artifacts are saved under `pacman_runs/`.
-
-This verifies execution, not strong Pac-Man performance. A full 100-episode run of this revision, CUDA, Windows, and hosted Colab have not been tested here. The distributed notebook has no saved outputs and retains its 100-episode starting value and every-25-game sample interval.
-
-## Sources
-
-- [ALE installation](https://ale.farama.org/getting-started/)
-- [Gymnasium Atari preprocessing](https://gymnasium.farama.org/api/wrappers/misc_wrappers/#gymnasium.wrappers.AtariPreprocessing)
-- [Gymnasium frame stacking](https://gymnasium.farama.org/api/wrappers/observation_wrappers/#gymnasium.wrappers.FrameStackObservation)
-- [DQN paper](https://storage.googleapis.com/deepmind-media/dqn/DQNNaturePaper.pdf)
+Model checkpoints (`*.pt`, about 7 MB each) are left out to keep the repo small, per the course guidance.
